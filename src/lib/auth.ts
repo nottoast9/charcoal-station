@@ -6,7 +6,7 @@
  */
 
 import { cookies } from 'next/headers';
-import { supabase } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 import bcrypt from 'bcryptjs';
 
 // Session configuration
@@ -65,6 +65,15 @@ export async function authenticateUser(
   error?: string 
 }> {
   try {
+    // Check if Supabase is configured
+    if (!isSupabaseConfigured()) {
+      console.error('Supabase is not configured');
+      return { 
+        success: false, 
+        error: 'Database not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables.' 
+      };
+    }
+
     // Get user by username
     const { data: user, error } = await supabase
       .from('app_users')
@@ -72,7 +81,19 @@ export async function authenticateUser(
       .eq('username', username)
       .single();
     
-    if (error || !user) {
+    if (error) {
+      console.error('Error fetching user:', error);
+      // Check if it's a "table doesn't exist" error
+      if (error.message?.includes('does not exist') || error.message?.includes('relation')) {
+        return { 
+          success: false, 
+          error: 'Authentication tables not found. Please run migration-auth.sql in your Supabase SQL Editor.' 
+        };
+      }
+      return { success: false, error: 'Invalid username or password' };
+    }
+    
+    if (!user) {
       return { success: false, error: 'Invalid username or password' };
     }
     
@@ -106,7 +127,14 @@ export async function authenticateUser(
     
     if (sessionError) {
       console.error('Error creating session:', sessionError);
-      return { success: false, error: 'Failed to create session' };
+      // Check if it's a "table doesn't exist" error
+      if (sessionError.message?.includes('does not exist') || sessionError.message?.includes('relation')) {
+        return { 
+          success: false, 
+          error: 'Session tables not found. Please run migration-auth.sql in your Supabase SQL Editor.' 
+        };
+      }
+      return { success: false, error: 'Failed to create session. Please try again.' };
     }
     
     // Update last_login
@@ -132,6 +160,11 @@ export async function authenticateUser(
 // Get current session from cookie
 export async function getSession(): Promise<{ userId: string; user: AppUser } | null> {
   try {
+    // Check if Supabase is configured
+    if (!isSupabaseConfigured()) {
+      return null;
+    }
+
     const cookieStore = await cookies();
     const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
     

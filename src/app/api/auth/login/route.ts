@@ -6,6 +6,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { username, password } = body;
 
+    console.log('Login attempt for username:', username);
+
     if (!username || !password) {
       return NextResponse.json(
         { success: false, error: 'Username and password are required' },
@@ -26,6 +28,8 @@ export async function POST(request: NextRequest) {
       ipAddress
     );
 
+    console.log('Authentication result:', { success: result.success, error: result.error });
+
     if (!result.success) {
       return NextResponse.json(
         { success: false, error: result.error || 'Login failed' },
@@ -36,6 +40,8 @@ export async function POST(request: NextRequest) {
     // Set session cookie
     await setSessionCookie(result.sessionId!);
 
+    console.log('Login successful for user:', result.user?.username);
+
     return NextResponse.json({
       success: true,
       user: result.user,
@@ -43,7 +49,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json(
-      { success: false, error: 'An error occurred during login. Please try again.' },
+      { success: false, error: 'An error occurred during login. Please check if the database is configured correctly.' },
       { status: 500 }
     );
   }

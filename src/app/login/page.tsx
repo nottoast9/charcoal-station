@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Flame, Loader2 } from 'lucide-react';
+import { Flame, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function LoginPage() {
@@ -14,17 +14,22 @@ export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     
     if (!username.trim() || !password.trim()) {
+      setError('Please enter username and password');
       toast.error('Please enter username and password');
       return;
     }
 
     setLoading(true);
     try {
+      console.log('Attempting login with:', username);
+      
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -35,17 +40,20 @@ export default function LoginPage() {
       });
       
       const json = await res.json();
+      console.log('Login response:', json);
       
       if (json.success) {
         toast.success('Login successful!');
-        router.push('/');
-        router.refresh();
+        // Use window.location for a hard refresh
+        window.location.href = '/';
       } else {
+        setError(json.error || 'Login failed');
         toast.error(json.error || 'Login failed');
       }
     } catch (error) {
       console.error('Login error:', error);
-      toast.error('Login failed. Please try again.');
+      setError('Network error. Please check your connection.');
+      toast.error('Network error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -90,6 +98,14 @@ export default function LoginPage() {
                 autoComplete="current-password"
               />
             </div>
+            
+            {error && (
+              <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg text-red-600 dark:text-red-400 text-sm">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+            
             <Button type="submit" className="w-full bg-orange-500 hover:bg-orange-600" disabled={loading}>
               {loading ? (
                 <>
@@ -100,6 +116,11 @@ export default function LoginPage() {
                 'Sign In'
               )}
             </Button>
+            
+            <div className="text-center text-xs text-muted-foreground mt-4">
+              <p>Default login: <strong>admin</strong> / <strong>admin123</strong></p>
+              <p className="mt-1">Make sure to run migration-auth.sql in Supabase</p>
+            </div>
           </form>
         </CardContent>
       </Card>

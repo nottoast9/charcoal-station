@@ -87,13 +87,35 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = generateUserId();
-    const passwordHash = hashPassword(password);
+    
+    // Hash the password - this is async!
+    let passwordHash: string;
+    try {
+      passwordHash = await hashPassword(password);
+      console.log('Password hashed successfully, length:', passwordHash?.length);
+    } catch (hashError) {
+      console.error('Error hashing password:', hashError);
+      return NextResponse.json(
+        { success: false, error: 'Failed to hash password' },
+        { status: 500 }
+      );
+    }
+
+    if (!passwordHash || typeof passwordHash !== 'string') {
+      console.error('Invalid password hash:', passwordHash);
+      return NextResponse.json(
+        { success: false, error: 'Failed to generate password hash' },
+        { status: 500 }
+      );
+    }
+
+    console.log('Creating user:', username);
 
     const { data: newUser, error } = await supabase
       .from('app_users')
       .insert({
         id: userId,
-        username,
+        username: username,
         password_hash: passwordHash,
         full_name: full_name || '',
         is_admin: is_admin || false,
@@ -105,16 +127,17 @@ export async function POST(request: NextRequest) {
     if (error) {
       console.error('Error creating user:', error);
       return NextResponse.json(
-        { success: false, error: 'Failed to create user' },
+        { success: false, error: 'Failed to create user: ' + error.message },
         { status: 500 }
       );
     }
 
+    console.log('User created successfully:', username);
     return NextResponse.json({ success: true, data: newUser });
   } catch (error) {
     console.error('Error creating user:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to create user' },
+      { success: false, error: 'Failed to create user: ' + (error as Error).message },
       { status: 500 }
     );
   }
@@ -156,8 +179,24 @@ export async function PUT(request: NextRequest) {
     if (full_name !== undefined) updateData.full_name = full_name;
     if (is_admin !== undefined) updateData.is_admin = is_admin;
     if (is_active !== undefined) updateData.is_active = is_active;
-    if (password) {
-      updateData.password_hash = hashPassword(password);
+    if (password && password.trim()) {
+      // Hash the new password
+      try {
+        const hashedPassword = await hashPassword(password);
+        if (!hashedPassword || typeof hashedPassword !== 'string') {
+          return NextResponse.json(
+            { success: false, error: 'Failed to hash password' },
+            { status: 500 }
+          );
+        }
+        updateData.password_hash = hashedPassword;
+      } catch (hashError) {
+        console.error('Error hashing password:', hashError);
+        return NextResponse.json(
+          { success: false, error: 'Failed to hash password' },
+          { status: 500 }
+        );
+      }
     }
 
     const { data: updatedUser, error } = await supabase
