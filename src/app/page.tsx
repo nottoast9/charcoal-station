@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,6 +31,7 @@ import ProfitSplitCard from '@/components/ProfitSplitCard';
 import PartnerManager from '@/components/PartnerManager';
 import CreditPaymentsManager from '@/components/CreditPaymentsManager';
 import QuickAccessPanel from '@/components/QuickAccessPanel';
+import UserManager from '@/components/UserManager';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -43,11 +45,24 @@ import {
   Users,
   CreditCard,
   Banknote,
-  FileText
+  FileText,
+  LogOut,
+  Shield,
+  Loader2,
+  Settings
 } from 'lucide-react';
 import { format } from 'date-fns';
 import JSZip from 'jszip';
 import { formatCurrency } from '@/lib/currency';
+import { toast } from 'sonner';
+
+interface AppUser {
+  id: string;
+  username: string;
+  full_name: string;
+  is_active: boolean;
+  is_admin: boolean;
+}
 
 interface Sale {
   id: string;
@@ -86,12 +101,39 @@ interface ExpenseType {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [sales, setSales] = useState<Sale[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [expenseTypes, setExpenseTypes] = useState<ExpenseType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+
+  // Check authentication
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        const json = await res.json();
+        
+        if (!json.authenticated) {
+          router.push('/login');
+          return;
+        }
+        
+        setCurrentUser(json.user);
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        router.push('/login');
+      } finally {
+        setCheckingAuth(false);
+      }
+    };
+    
+    checkAuth();
+  }, [router]);
 
   // Filters
   const [salesProductFilter, setSalesProductFilter] = useState<string>('all');
@@ -156,48 +198,14 @@ export default function Home() {
     setLoading(false);
   }, [fetchSales, fetchExpenses, fetchProducts, fetchExpenseTypes]);
 
-  // Fetch all initial data on mount
+  // Fetch data after auth check
   useEffect(() => {
-    let mounted = true;
-    
-    async function loadData() {
-      setLoading(true);
-      try {
-        const [salesRes, expensesRes, productsRes, expenseTypesRes] = await Promise.all([
-          fetch('/api/sales'),
-          fetch('/api/expenses'),
-          fetch('/api/products'),
-          fetch('/api/expense-types'),
-        ]);
-        
-        const [salesJson, expensesJson, productsJson, expenseTypesJson] = await Promise.all([
-          salesRes.json(),
-          expensesRes.json(),
-          productsRes.json(),
-          expenseTypesRes.json(),
-        ]);
-        
-        if (mounted) {
-          if (salesJson.success) setSales(salesJson.data);
-          if (expensesJson.success) setExpenses(expensesJson.data);
-          if (productsJson.success) setProducts(productsJson.data);
-          if (expenseTypesJson.success) setExpenseTypes(expenseTypesJson.data);
-        }
-      } catch (error) {
-        console.error('Error loading data:', error);
-      } finally {
-        if (mounted) setLoading(false);
-      }
+    if (!checkingAuth && currentUser) {
+      fetchAllData();
     }
-    
-    loadData();
-    
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  }, [checkingAuth, currentUser, fetchAllData]);
 
-  // Refresh data when tab changes to ensure fresh data
+  // Refresh data when tab changes
   useEffect(() => {
     if (activeTab === 'sales') {
       fetchProducts();
@@ -206,25 +214,30 @@ export default function Home() {
     }
   }, [activeTab, fetchProducts, fetchExpenseTypes]);
 
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      router.push('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+      toast.error('Logout failed');
+    }
+  };
+
   const handleExport = async () => {
     try {
       const res = await fetch('/api/export');
       const data = await res.json();
       
-      // Create a zip file using JSZip
       const zip = new JSZip();
       
-      // Add each CSV file to the zip
       if (data.files && Array.isArray(data.files)) {
         data.files.forEach((file: { name: string; content: string }) => {
           zip.file(file.name, file.content);
         });
       }
       
-      // Generate the zip file
       const blob = await zip.generateAsync({ type: 'blob' });
-      
-      // Download the zip file
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -244,16 +257,6 @@ export default function Home() {
     } catch {
       return dateString;
     }
-  };
-
-  const formatDateTime = (sale: Sale) => {
-    if (sale.datetime) {
-      return sale.datetime;
-    }
-    if (sale.time) {
-      return `${sale.date} ${sale.time}`;
-    }
-    return sale.date;
   };
 
   const getPaymentMethodBadge = (method?: string, type: 'sale' | 'expense' = 'sale') => {
@@ -286,7 +289,6 @@ export default function Home() {
     );
   };
 
-  // Filtered data
   const filteredSales = salesProductFilter === 'all'
     ? sales
     : sales.filter(s => s.product_id === salesProductFilter);
@@ -295,10 +297,26 @@ export default function Home() {
     ? expenses
     : expenses.filter(e => e.expense_type_id === expensesTypeFilter);
 
-  // Calculate summary
   const totalIncome = sales.reduce((sum, s) => sum + s.total_amount, 0);
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const netProfit = totalIncome - totalExpenses;
+
+  // Show loading while checking auth
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-orange-500" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated
+  if (!currentUser) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -314,7 +332,15 @@ export default function Home() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold">Charcoal Station</h1>
-                <p className="text-sm text-muted-foreground">Business Manager</p>
+                <p className="text-sm text-muted-foreground">
+                  Welcome, {currentUser.full_name || currentUser.username}
+                  {currentUser.is_admin && (
+                    <Badge variant="outline" className="ml-2 text-xs">
+                      <Shield className="h-3 w-3 mr-1" />
+                      Admin
+                    </Badge>
+                  )}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -324,7 +350,11 @@ export default function Home() {
               </Button>
               <Button variant="outline" size="sm" onClick={handleExport}>
                 <Download className="h-4 w-4 mr-2" />
-                Export CSV
+                Export
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleLogout} className="text-red-600 hover:text-red-700">
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
               </Button>
             </div>
           </div>
@@ -346,8 +376,8 @@ export default function Home() {
               </div>
             </div>
             <div className="p-3 bg-purple-50 dark:bg-purple-950 rounded-lg border border-purple-200 dark:border-purple-800">
-              <div className="text-xs text-muted-foreground">Total Sales</div>
-              <div className="text-lg font-bold text-purple-600">{sales.length}</div>
+              <div className="text-xs text-muted-foreground">Items Sold</div>
+              <div className="text-lg font-bold text-purple-600">{sales.reduce((sum, s) => sum + (s.quantity || 1), 0)}</div>
             </div>
           </div>
         </div>
@@ -356,7 +386,7 @@ export default function Home() {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid grid-cols-4 sm:grid-cols-8 gap-2 h-auto p-1">
+          <TabsList className="grid grid-cols-4 sm:grid-cols-9 gap-2 h-auto p-1">
             <TabsTrigger value="dashboard" className="flex items-center gap-2">
               <LayoutDashboard className="h-4 w-4" />
               <span className="hidden sm:inline">Dashboard</span>
@@ -379,7 +409,7 @@ export default function Home() {
             </TabsTrigger>
             <TabsTrigger value="expense-types" className="flex items-center gap-2">
               <Tags className="h-4 w-4" />
-              <span className="hidden sm:inline">Expense Types</span>
+              <span className="hidden sm:inline">Types</span>
             </TabsTrigger>
             <TabsTrigger value="partners" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
@@ -387,8 +417,14 @@ export default function Home() {
             </TabsTrigger>
             <TabsTrigger value="profit-split" className="flex items-center gap-2">
               <Split className="h-4 w-4" />
-              <span className="hidden sm:inline">Profit Split</span>
+              <span className="hidden sm:inline">Profit</span>
             </TabsTrigger>
+            {currentUser.is_admin && (
+              <TabsTrigger value="users" className="flex items-center gap-2">
+                <Settings className="h-4 w-4" />
+                <span className="hidden sm:inline">Users</span>
+              </TabsTrigger>
+            )}
           </TabsList>
 
           {/* Dashboard Tab */}
@@ -437,10 +473,10 @@ export default function Home() {
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>Date & Time</TableHead>
+                              <TableHead>Date</TableHead>
                               <TableHead>Product</TableHead>
                               <TableHead className="text-center">Qty</TableHead>
-                              <TableHead className="text-right">Unit Price</TableHead>
+                              <TableHead className="text-right">Price</TableHead>
                               <TableHead>Payment</TableHead>
                               <TableHead className="text-right">Total</TableHead>
                             </TableRow>
@@ -585,42 +621,39 @@ export default function Home() {
               <Card>
                 <CardHeader>
                   <CardTitle>How Profit Split Works</CardTitle>
-                  <CardDescription>Understanding the profit distribution process</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="p-4 bg-muted rounded-lg">
                     <h4 className="font-semibold mb-2">Step 1: Add Partners</h4>
                     <p className="text-sm text-muted-foreground">
-                      First, add all partners in the <strong>Partners</strong> tab with their profit percentages. 
-                      The total must equal 100% before you can split profits.
+                      Add partners with their profit percentages. Total must equal 100%.
                     </p>
                   </div>
                   <div className="p-4 bg-muted rounded-lg">
                     <h4 className="font-semibold mb-2">Step 2: Calculate Profit</h4>
                     <p className="text-sm text-muted-foreground">
-                      Profit is calculated as: <strong>Total Income - Total Expenses</strong> for the selected month.
-                      Each partner receives their percentage share automatically.
-                    </p>
-                  </div>
-                  <div className="p-4 bg-muted rounded-lg">
-                    <h4 className="font-semibold mb-2">Step 3: Record Split</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Click &quot;Split Profit&quot; to record the distribution. Each partner&apos;s share is calculated
-                      and saved to the profit split history.
+                      Profit = Total Income - Total Expenses for the selected month.
                     </p>
                   </div>
                   <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <h4 className="font-semibold mb-2 text-blue-700 dark:text-blue-300">Example</h4>
+                    <h4 className="font-semibold mb-2 text-blue-700">Example</h4>
                     <p className="text-sm text-muted-foreground">
-                      If profit is Rs. 100,000 and Partner A has 60%, Partner B has 40%:
-                      <br />• Partner A receives: Rs. 60,000
-                      <br />• Partner B receives: Rs. 40,000
+                      If profit is Rs. 100,000 with 60%/40% split:
+                      <br />• Partner A: Rs. 60,000
+                      <br />• Partner B: Rs. 40,000
                     </p>
                   </div>
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
+
+          {/* Users Tab (Admin Only) */}
+          {currentUser.is_admin && (
+            <TabsContent value="users">
+              <UserManager onChange={fetchAllData} />
+            </TabsContent>
+          )}
         </Tabs>
       </main>
 

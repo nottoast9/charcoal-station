@@ -188,7 +188,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{data.totalSales}</div>
-            <p className="text-xs text-muted-foreground">transactions this month</p>
+            <p className="text-xs text-muted-foreground">items sold this month</p>
           </CardContent>
         </Card>
         <Card>
@@ -301,7 +301,7 @@ export default function Dashboard() {
         <Card>
           <CardHeader>
             <CardTitle>Monthly Sales Trend</CardTitle>
-            <CardDescription>Number of sales over the last 6 months</CardDescription>
+            <CardDescription>Number of items sold over the last 6 months</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="h-[300px]">
@@ -311,7 +311,7 @@ export default function Dashboard() {
                   <XAxis dataKey="date" />
                   <YAxis />
                   <Tooltip />
-                  <Bar dataKey="amount" fill="#8884d8" name="Sales" />
+                  <Bar dataKey="amount" fill="#8884d8" name="Items Sold" />
                 </BarChart>
               </ResponsiveContainer>
             </div>

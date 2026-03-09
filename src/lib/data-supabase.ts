@@ -1235,14 +1235,14 @@ export async function getDashboardData(month?: number, year?: number): Promise<D
 
     const dateLabel = `${y}-${String(m).padStart(2, '0')}`;
 
-    monthlySales.push({ date: dateLabel, amount: monthSales.length });
+    monthlySales.push({ date: dateLabel, amount: monthSales.reduce((sum, s) => sum + s.quantity, 0) });
     monthlyIncome.push({ date: dateLabel, amount: income });
     monthlyExpenses.push({ date: dateLabel, amount: exp });
     monthlyProfit.push({ date: dateLabel, amount: profit });
   }
 
   return {
-    totalSales: sales.length,
+    totalSales: sales.reduce((sum, s) => sum + s.quantity, 0),
     totalIncome,
     totalExpenses,
     netProfit,
